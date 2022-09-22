@@ -96,6 +96,7 @@ func (t Service) SignupHandler(rw http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	t.Dr.InsertDataUserRepo(ctx, user.Userdb{Name: r.Header["Name"][0], Password: r.Header["Password"][0], Email: r.Header["Email"][0]})
 	rw.WriteHeader(http.StatusOK)
 	rw.Write([]byte("User Created"))
 }
