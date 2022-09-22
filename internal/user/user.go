@@ -1,6 +1,9 @@
 package user
 
-import "database/sql"
+import (
+	"context"
+	"database/sql"
+)
 
 type User struct {
 	Name     string `json:"name"`
@@ -14,10 +17,63 @@ type Userdb struct {
 	Email    string `db:"Email"`
 }
 
+type Users []*User
+type Userdbs []*Userdb
+
 type DataRepo struct {
 	Db *sql.DB
 }
 
 func ProvideDB(Db *sql.DB) DataRepo {
 	return DataRepo{Db: Db}
+}
+
+const (
+	SELECT_DATA_USER = `SELECT * FROM users`
+	INSERT_DATA_USER = `INSERT INTO users(name,password,email) VALUE(?,?,?)`
+)
+
+func (t DataRepo) GetUserDataRepo(ctx context.Context) (Userdbs, error) {
+	stmt, err := t.Db.PrepareContext(ctx, SELECT_DATA_USER)
+	if err != nil {
+		return nil, err
+	}
+	var temp Userdbs
+	rows, err := stmt.QueryContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var temp2 Userdb
+		if err := rows.Scan(&temp2.Name, &temp2.Password, &temp2.Email); err != nil {
+			return nil, err
+		}
+		temp = append(temp, &temp2)
+	}
+	return temp, nil
+}
+
+func (t DataRepo) InsertDataUserRepo(ctx context.Context, userdata Userdb) error {
+	stmt, err := t.Db.PrepareContext(ctx, INSERT_DATA_USER)
+	if err != nil {
+		return err
+	}
+	_, err = stmt.QueryContext(ctx, userdata.Name, userdata.Password, userdata.Email)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+type UserRepoInterface interface {
+	GetUserDataRepo(ctx context.Context) (Userdbs, error)
+	InsertDataUserRepo(ctx context.Context, userdata Userdb) error
+}
+
+func Changedatatype(t Userdbs) Users {
+	var temp Users
+	for _, data := range t {
+		temp = append(temp, &User{Email: data.Email, Name: data.Name, Password: data.Password})
+	}
+	return temp
 }

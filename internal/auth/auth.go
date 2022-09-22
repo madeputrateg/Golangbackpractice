@@ -3,20 +3,20 @@ package auth
 import (
 	"crypto/hmac"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"practice/internal/user"
 	"strings"
 )
 
-type DataRepo struct {
-	Db *sql.DB
+type Service struct {
+	Dr user.DataRepo
 }
 
-func ProvideDB(Db *sql.DB) DataRepo {
-	return DataRepo{Db: Db}
+func MakeUserRepoInterface(Dr user.DataRepo) Service {
+	return Service{Dr: Dr}
 }
 
 func GenerateToken(header string, payload map[string]string, secret string) (string, error) {
@@ -66,7 +66,7 @@ func ValidateToken(token string, secret string) (bool, error) {
 	return true, nil
 }
 
-func SignupHandler(rw http.ResponseWriter, r *http.Request) {
+func (t Service) SignupHandler(rw http.ResponseWriter, r *http.Request) {
 	if _, ok := r.Header["Email"]; !ok {
 		rw.WriteHeader(http.StatusBadRequest)
 		rw.Write([]byte("Email Missing"))
@@ -82,7 +82,20 @@ func SignupHandler(rw http.ResponseWriter, r *http.Request) {
 		rw.Write([]byte("Fullname Missing"))
 		return
 	}
-
+	ctx := r.Context()
+	data, err := t.Dr.GetUserDataRepo(ctx)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	jsondata := user.Changedatatype(data)
+	for _, isi := range jsondata {
+		if isi.Email == r.Header["Email"][0] {
+			rw.WriteHeader(http.StatusConflict)
+			rw.Write([]byte("Internal Server Error"))
+			return
+		}
+	}
 	rw.WriteHeader(http.StatusOK)
 	rw.Write([]byte("User Created"))
 }
