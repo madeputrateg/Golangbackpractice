@@ -7,9 +7,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"practice/internal/user"
 	"strings"
+	"time"
+
+	"github.com/golang-jwt/jwt/v4"
 )
+
+type Authentication struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type Token struct {
+	Email       string `json:"email"`
+	TokenString string `json:"token"`
+}
 
 type Service struct {
 	Dr user.DataRepo
@@ -67,21 +81,8 @@ func ValidateToken(token string, secret string) (bool, error) {
 }
 
 func (t Service) SignupHandler(rw http.ResponseWriter, r *http.Request) {
-	if _, ok := r.Header["Email"]; !ok {
-		rw.WriteHeader(http.StatusBadRequest)
-		rw.Write([]byte("Email Missing"))
-		return
-	}
-	if _, ok := r.Header["Passwordhash"]; !ok {
-		rw.WriteHeader(http.StatusBadRequest)
-		rw.Write([]byte("Passwordhash Missing"))
-		return
-	}
-	if _, ok := r.Header["Fullname"]; !ok {
-		rw.WriteHeader(http.StatusBadRequest)
-		rw.Write([]byte("Fullname Missing"))
-		return
-	}
+	var userdata user.User
+	json.NewEncoder(rw).Encode(&userdata)
 	ctx := r.Context()
 	data, err := t.Dr.GetUserDataRepo(ctx)
 	if err != nil {
@@ -90,13 +91,53 @@ func (t Service) SignupHandler(rw http.ResponseWriter, r *http.Request) {
 	}
 	jsondata := user.Changedatatype(data)
 	for _, isi := range jsondata {
-		if isi.Email == r.Header["Email"][0] {
+		if isi.Email == userdata.Email {
 			rw.WriteHeader(http.StatusConflict)
 			rw.Write([]byte("Internal Server Error"))
 			return
 		}
 	}
-	t.Dr.InsertDataUserRepo(ctx, user.Userdb{Name: r.Header["Name"][0], Password: r.Header["Password"][0], Email: r.Header["Email"][0]})
+	back := user.Changebackdatatype(userdata)
+	back.Password = Hashpassword(back.Password)
+	tokenjwt, err := Generatejwttoken(back.Name, back.Email)
+	if err != nil {
+		rw.Write([]byte("Internal Server Error"))
+		return
+	}
+	expire := time.Now().Add(11 * time.Minute)
+	http.SetCookie(rw, &http.Cookie{
+		Name:    "testtoken",
+		Value:   tokenjwt,
+		Expires: expire,
+	})
+	t.Dr.InsertDataUserRepo(ctx, user.Userdb{Name: back.Name, Password: back.Password, Email: back.Email})
 	rw.WriteHeader(http.StatusOK)
 	rw.Write([]byte("User Created"))
+}
+
+func Generatejwttoken(user string, email string) (string, error) {
+	token := jwt.New(jwt.SigningMethodEdDSA)
+	claims := token.Claims.(jwt.MapClaims)
+	claims["exp"] = time.Now().Add(11 * time.Minute)
+	claims["authorized"] = true
+	claims["user"] = user
+	claims["email"] = email
+	lubang := os.Getenv("secretkey")
+	tokenString, err := token.SignedString([]byte(lubang))
+	if err != nil {
+		return "", err
+	}
+	return tokenString, nil
+}
+
+func Hashpassword(pass string) string {
+	var headsedpass string
+	supersecret := os.Getenv("salt")
+	headsedpass = supersecret + pass + supersecret
+	headsedpass = base64.RawStdEncoding.EncodeToString([]byte(headsedpass))
+	return headsedpass
+}
+
+type authser interface {
+	SignupHandler(rw http.ResponseWriter, r *http.Request)
 }

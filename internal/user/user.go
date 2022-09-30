@@ -77,3 +77,11 @@ func Changedatatype(t Userdbs) Users {
 	}
 	return temp
 }
+
+func Changebackdatatype(t User) Userdb {
+	var data Userdb
+	data.Email = t.Email
+	data.Name = t.Name
+	data.Password = t.Password
+	return data
+}
