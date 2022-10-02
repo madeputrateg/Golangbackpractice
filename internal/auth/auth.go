@@ -1,18 +1,16 @@
 package auth
 
 import (
-	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"practice/internal/user"
-	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/gorilla/mux"
 )
 
 type Authentication struct {
@@ -29,60 +27,52 @@ type Service struct {
 	Dr user.DataRepo
 }
 
+type Contoller struct {
+	S Service
+	X *mux.Router
+}
+
 func MakeUserRepoInterface(Dr user.DataRepo) Service {
 	return Service{Dr: Dr}
 }
 
-func GenerateToken(header string, payload map[string]string, secret string) (string, error) {
-	h := hmac.New(sha256.New, []byte(secret))
-	header64 := base64.StdEncoding.EncodeToString([]byte(header))
-	payloadstr, err := json.Marshal(payload)
+func (t Service) SigninHandler(rw http.ResponseWriter, r *http.Request) {
+	var userdata user.User
+	json.NewDecoder(r.Body).Decode(&userdata)
+	userdata.Password = Hashpassword(userdata.Password)
+	ctx := r.Context()
+	data, err := t.Dr.GetUserDataRepo(ctx)
 	if err != nil {
-		fmt.Println("error -> payload marshal")
-		return string(payloadstr), err
+		fmt.Println(err)
+		return
 	}
-	payload64 := base64.StdEncoding.EncodeToString([]byte(payloadstr))
-	message := header64 + "." + payload64
-	unsingnedStr := header + string(payloadstr)
-	h.Write([]byte(unsingnedStr))
-	signature := base64.StdEncoding.EncodeToString(h.Sum(nil))
-	tokenstr := message + "." + signature
-	return tokenstr, nil
-
-}
-
-func ValidateToken(token string, secret string) (bool, error) {
-	splitToken := strings.Split(token, ".")
-	if len(splitToken) != 3 {
-		fmt.Println("error -> split token error")
-		return false, nil
+	for _, isi := range data {
+		if isi.Email == userdata.Email {
+			if isi.Password != userdata.Password {
+				rw.Write([]byte("false password"))
+				return
+			}
+			jwttoken, err := Generatejwttoken(isi.Name, userdata.Email)
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
+			expire := time.Now().Add(11 * time.Minute)
+			http.SetCookie(rw, &http.Cookie{
+				Name:    "TestToken",
+				Value:   jwttoken,
+				Expires: expire,
+			})
+			rw.Write([]byte("login succesful"))
+			return
+		}
 	}
-	header, err := base64.StdEncoding.DecodeString(splitToken[0])
-	if err != nil {
-		fmt.Println("error -> header decode error")
-		return false, nil
-	}
-	payload, err := base64.StdEncoding.DecodeString(splitToken[1])
-	if err != nil {
-		fmt.Println("error -> payload decode error")
-		return false, nil
-	}
-	unsingnedStr := string(header) + string(payload)
-	h := hmac.New(sha256.New, []byte(secret))
-	h.Write([]byte(unsingnedStr))
-
-	signature := base64.StdEncoding.EncodeToString(h.Sum(nil))
-	fmt.Println(signature)
-
-	if signature != splitToken[2] {
-		return false, nil
-	}
-	return true, nil
+	rw.Write([]byte("email not found"))
 }
 
 func (t Service) SignupHandler(rw http.ResponseWriter, r *http.Request) {
 	var userdata user.User
-	json.NewEncoder(rw).Encode(&userdata)
+	json.NewDecoder(r.Body).Decode(&userdata)
 	ctx := r.Context()
 	data, err := t.Dr.GetUserDataRepo(ctx)
 	if err != nil {
@@ -93,7 +83,7 @@ func (t Service) SignupHandler(rw http.ResponseWriter, r *http.Request) {
 	for _, isi := range jsondata {
 		if isi.Email == userdata.Email {
 			rw.WriteHeader(http.StatusConflict)
-			rw.Write([]byte("Internal Server Error"))
+			rw.Write([]byte("User is udah ada"))
 			return
 		}
 	}
@@ -101,28 +91,32 @@ func (t Service) SignupHandler(rw http.ResponseWriter, r *http.Request) {
 	back.Password = Hashpassword(back.Password)
 	tokenjwt, err := Generatejwttoken(back.Name, back.Email)
 	if err != nil {
-		rw.Write([]byte("Internal Server Error"))
+		rw.Write([]byte("Internal Server Error di buat token"))
+		fmt.Println(err)
 		return
 	}
 	expire := time.Now().Add(11 * time.Minute)
 	http.SetCookie(rw, &http.Cookie{
-		Name:    "testtoken",
+		Name:    "TestToken",
 		Value:   tokenjwt,
 		Expires: expire,
 	})
-	t.Dr.InsertDataUserRepo(ctx, user.Userdb{Name: back.Name, Password: back.Password, Email: back.Email})
+	err = t.Dr.InsertDataUserRepo(ctx, user.Userdb{Name: back.Name, Password: back.Password, Email: back.Email})
+	if err != nil {
+		fmt.Println(err)
+	}
 	rw.WriteHeader(http.StatusOK)
 	rw.Write([]byte("User Created"))
 }
 
 func Generatejwttoken(user string, email string) (string, error) {
-	token := jwt.New(jwt.SigningMethodEdDSA)
+	token := jwt.New(jwt.SigningMethodHS256)
 	claims := token.Claims.(jwt.MapClaims)
 	claims["exp"] = time.Now().Add(11 * time.Minute)
 	claims["authorized"] = true
 	claims["user"] = user
 	claims["email"] = email
-	lubang := os.Getenv("secretkey")
+	lubang := os.Getenv("KEY")
 	tokenString, err := token.SignedString([]byte(lubang))
 	if err != nil {
 		return "", err
@@ -134,10 +128,24 @@ func Hashpassword(pass string) string {
 	var headsedpass string
 	supersecret := os.Getenv("salt")
 	headsedpass = supersecret + pass + supersecret
-	headsedpass = base64.RawStdEncoding.EncodeToString([]byte(headsedpass))
-	return headsedpass
+	h := sha256.New()
+	h.Write([]byte(headsedpass))
+	bs := h.Sum(nil)
+	return string(bs)
 }
 
-type authser interface {
+func (c Contoller) InitializeController() {
+	c.X.HandleFunc("/Signup", c.S.SignupHandler).Methods(http.MethodPost)
+	c.X.HandleFunc("/Signin", c.S.SigninHandler).Methods(http.MethodPost)
+}
+
+func SetupaAuthContoller(X *mux.Router, S Service) Contoller {
+	return Contoller{
+		X: X,
+		S: S,
+	}
+}
+
+type Authser interface {
 	SignupHandler(rw http.ResponseWriter, r *http.Request)
 }

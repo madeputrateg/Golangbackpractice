@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	"database/sql"
+	"fmt"
 )
 
 type User struct {
@@ -29,12 +30,12 @@ func ProvideDB(Db *sql.DB) DataRepo {
 }
 
 const (
-	SELECT_DATA_USER = `SELECT * FROM users`
-	INSERT_DATA_USER = `INSERT INTO users(name,password,email) VALUE(?,?,?)`
+	SELECT_DATA_USERS = `SELECT name,password,email FROM users`
+	INSERT_DATA_USER  = `INSERT INTO users(name,password,email) VALUES ($1,$2,$3)`
 )
 
 func (t DataRepo) GetUserDataRepo(ctx context.Context) (Userdbs, error) {
-	stmt, err := t.Db.PrepareContext(ctx, SELECT_DATA_USER)
+	stmt, err := t.Db.PrepareContext(ctx, SELECT_DATA_USERS)
 	if err != nil {
 		return nil, err
 	}
@@ -56,10 +57,12 @@ func (t DataRepo) GetUserDataRepo(ctx context.Context) (Userdbs, error) {
 func (t DataRepo) InsertDataUserRepo(ctx context.Context, userdata Userdb) error {
 	stmt, err := t.Db.PrepareContext(ctx, INSERT_DATA_USER)
 	if err != nil {
+		fmt.Println("prepare err")
 		return err
 	}
 	_, err = stmt.QueryContext(ctx, userdata.Name, userdata.Password, userdata.Email)
 	if err != nil {
+		fmt.Println("Querry err")
 		return err
 	}
 	return nil

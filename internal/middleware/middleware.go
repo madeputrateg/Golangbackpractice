@@ -9,13 +9,13 @@ import (
 
 func Middlewareauth(x http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		c, err := r.Cookie("testtoken")
+		c, err := r.Cookie("TestToken")
 		if err != nil {
 			rw.WriteHeader(http.StatusBadRequest)
 			rw.Write([]byte("error cookie"))
 			return
 		}
-		secret := os.Getenv("secretkey")
+		secret := os.Getenv("KEY")
 		tknstr := c.Value
 		claims := jwt.MapClaims{}
 		token, err := jwt.ParseWithClaims(tknstr, claims, func(t *jwt.Token) (interface{}, error) {
