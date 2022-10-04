@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"practice/internal/middleware"
 	"practice/internal/user"
 	"time"
 
@@ -70,6 +71,10 @@ func (t Service) SigninHandler(rw http.ResponseWriter, r *http.Request) {
 	rw.Write([]byte("email not found"))
 }
 
+func (t Service) Ping(rw http.ResponseWriter, r *http.Request) {
+	rw.Write([]byte("ndak mau asu jangan dipegang"))
+}
+
 func (t Service) SignupHandler(rw http.ResponseWriter, r *http.Request) {
 	var userdata user.User
 	json.NewDecoder(r.Body).Decode(&userdata)
@@ -112,7 +117,7 @@ func (t Service) SignupHandler(rw http.ResponseWriter, r *http.Request) {
 func Generatejwttoken(user string, email string) (string, error) {
 	token := jwt.New(jwt.SigningMethodHS256)
 	claims := token.Claims.(jwt.MapClaims)
-	claims["exp"] = time.Now().Add(11 * time.Minute)
+	claims["exp"] = time.Now().Add(1 * time.Hour).Unix()
 	claims["authorized"] = true
 	claims["user"] = user
 	claims["email"] = email
@@ -137,6 +142,12 @@ func Hashpassword(pass string) string {
 func (c Contoller) InitializeController() {
 	c.X.HandleFunc("/Signup", c.S.SignupHandler).Methods(http.MethodPost)
 	c.X.HandleFunc("/Signin", c.S.SigninHandler).Methods(http.MethodPost)
+}
+
+func (c Contoller) InitializeControllerAuth() {
+	test := c.X.PathPrefix("/Ping").Subrouter()
+	test.HandleFunc("", c.S.Ping).Methods(http.MethodGet)
+	test.Use(middleware.Middlewareauth)
 }
 
 func SetupaAuthContoller(X *mux.Router, S Service) Contoller {
